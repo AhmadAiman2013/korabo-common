@@ -3,11 +3,12 @@ use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::Json;
 use axum::response::{IntoResponse, Response};
-use serde_json::{from_str, json, Value};
+use serde_json::{from_str, json};
 use thiserror::Error;
 use claims::Claims;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use jsonwebtoken::errors::ErrorKind;
+use jsonwebtoken::jwk::{AlgorithmParameters, JwkSet};
 
 const JWKS_JSON: &str = include_str!("./jwks.json");
 
@@ -70,22 +71,21 @@ pub struct JwtPublicKey {
 
 impl JwtPublicKey {
     pub fn from_jwks_file(issuer: String, audience: String) -> Result<Self, JwtError> {
-        let jwks: Value = from_str(JWKS_JSON).map_err(|_| JwtError::JwksLoadFailed)?;
+        let jwks: JwkSet = from_str(JWKS_JSON)
+            .map_err(|_| JwtError::JwksLoadFailed)?;
 
-        let key = &jwks["keys"][0];
+        // Find the first RSA signing key
+        let jwk = jwks.keys.iter().find(|k| {
+            matches!(&k.algorithm, AlgorithmParameters::RSA(_))
+        }).ok_or(JwtError::JwksLoadFailed)?;
 
-        let n = key["n"].as_str().ok_or(JwtError::JwksLoadFailed)?;
-        let e = key["e"].as_str().ok_or(JwtError::JwksLoadFailed)?;
-        let kid = key["kid"].as_str().ok_or(JwtError::JwksLoadFailed)?.to_string();
+        let kid = jwk.common.key_id.clone()
+            .ok_or(JwtError::JwksLoadFailed)?;
 
-        let decoding_key = DecodingKey::from_rsa_components(&n, &e).map_err(|_| JwtError::JwksLoadFailed)?;
+        let decoding_key = DecodingKey::from_jwk(jwk)
+            .map_err(|_| JwtError::JwksLoadFailed)?;
 
-        Ok(Self {
-            decoding_key,
-            kid,
-            issuer,
-            audience
-        })
+        Ok(Self { decoding_key, kid, issuer, audience })
     }
 }
 
