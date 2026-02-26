@@ -9,6 +9,7 @@ use claims::Claims;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::{AlgorithmParameters, JwkSet};
+use tracing::{error, warn};
 
 const JWKS_JSON: &str = include_str!("./jwks.json");
 
@@ -115,8 +116,12 @@ pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, J
         .strip_prefix("Bearer ")
         .ok_or(JwtError::InvalidFormat)?;
 
-    let header = decode_header(token).map_err(|_| JwtError::InvalidFormat)?;
+    let header = decode_header(token).map_err(|e| {
+        error!("Failed to decode JWT header: {:?}", e);
+        JwtError::InvalidFormat
+    })?;
     if header.kid.as_ref() != Some(&key.kid) {
+        warn!("Kid mismatch — got {:?}, expected {}", header.kid, key.kid);
         return Err(JwtError::UnknownKid);
     }
 
@@ -125,6 +130,7 @@ pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, J
     validation.set_audience(&[&key.audience]);
 
     let token_data = decode::<Claims>(token, &key.decoding_key, &validation).map_err(|e| {
+        error!("JWT validation failed: {:?}", e);
         match e.kind() {
             ErrorKind::ExpiredSignature => JwtError::Expired,
             ErrorKind::InvalidIssuer | ErrorKind::InvalidAudience => JwtError::InvalidClaims,
