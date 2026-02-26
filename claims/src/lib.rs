@@ -9,4 +9,5 @@ pub struct Claims {
     pub jti: String,
     pub iss: String,
     pub aud: String,
+    pub scope: String,
 }
