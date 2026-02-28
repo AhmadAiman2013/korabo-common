@@ -75,9 +75,9 @@ impl JwtPublicKey {
         let jwks: JwkSet = from_str(JWKS_JSON)
             .map_err(|_| JwtError::JwksLoadFailed)?;
 
-        // Find the first RSA signing key
+        // Find the first OKP signing key
         let jwk = jwks.keys.iter().find(|k| {
-            matches!(&k.algorithm, AlgorithmParameters::RSA(_))
+            matches!(&k.algorithm, AlgorithmParameters::OctetKeyPair(_))
         }).ok_or(JwtError::JwksLoadFailed)?;
 
         let kid = jwk.common.key_id.clone()
@@ -125,7 +125,7 @@ pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, J
         return Err(JwtError::UnknownKid);
     }
 
-    let mut validation = Validation::new(Algorithm::RS256);
+    let mut validation = Validation::new(Algorithm::EdDSA);
     validation.set_issuer(&[&key.issuer]);
     validation.set_audience(&[&key.audience]);
 
