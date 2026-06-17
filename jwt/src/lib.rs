@@ -151,6 +151,7 @@ pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, J
     decode_and_validate_token(token, key)
 }
 
+// Without Authorization Header
 pub fn extract_claims_without_bearer(token: &str, key: &JwtPublicKey) -> Result<Claims, JwtError> {
     decode_and_validate_token(token, key)
 }
