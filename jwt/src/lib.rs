@@ -1,14 +1,14 @@
-use axum::extract::FromRequestParts;
-use axum::http::request::Parts;
-use axum::http::StatusCode;
 use axum::Json;
+use axum::extract::FromRequestParts;
+use axum::http::StatusCode;
+use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
-use serde_json::{from_str, json};
-use thiserror::Error;
 use claims::Claims;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::{AlgorithmParameters, JwkSet};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+use serde_json::{from_str, json};
+use thiserror::Error;
 use tracing::{error, warn};
 
 const JWKS_JSON: &str = include_str!("./jwks.json");
@@ -37,7 +37,7 @@ pub enum JwtError {
     DecodeFailed,
 
     #[error("Failed to load JWKS")]
-    JwksLoadFailed
+    JwksLoadFailed,
 }
 
 impl IntoResponse for JwtError {
@@ -72,21 +72,25 @@ pub struct JwtPublicKey {
 
 impl JwtPublicKey {
     pub fn from_jwks_file(issuer: String, audience: String) -> Result<Self, JwtError> {
-        let jwks: JwkSet = from_str(JWKS_JSON)
-            .map_err(|_| JwtError::JwksLoadFailed)?;
+        let jwks: JwkSet = from_str(JWKS_JSON).map_err(|_| JwtError::JwksLoadFailed)?;
 
         // Find the first OKP signing key
-        let jwk = jwks.keys.iter().find(|k| {
-            matches!(&k.algorithm, AlgorithmParameters::OctetKeyPair(_))
-        }).ok_or(JwtError::JwksLoadFailed)?;
-
-        let kid = jwk.common.key_id.clone()
+        let jwk = jwks
+            .keys
+            .iter()
+            .find(|k| matches!(&k.algorithm, AlgorithmParameters::OctetKeyPair(_)))
             .ok_or(JwtError::JwksLoadFailed)?;
 
-        let decoding_key = DecodingKey::from_jwk(jwk)
-            .map_err(|_| JwtError::JwksLoadFailed)?;
+        let kid = jwk.common.key_id.clone().ok_or(JwtError::JwksLoadFailed)?;
 
-        Ok(Self { decoding_key, kid, issuer, audience })
+        let decoding_key = DecodingKey::from_jwk(jwk).map_err(|_| JwtError::JwksLoadFailed)?;
+
+        Ok(Self {
+            decoding_key,
+            kid,
+            issuer,
+            audience,
+        })
     }
 }
 
@@ -111,11 +115,8 @@ where
     }
 }
 
-pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, JwtError> {
-    let token = auth_header
-        .strip_prefix("Bearer ")
-        .ok_or(JwtError::InvalidFormat)?;
-
+/// Shared helper: decode and validate a raw token string (no "Bearer " prefix)
+fn decode_and_validate_token(token: &str, key: &JwtPublicKey) -> Result<Claims, JwtError> {
     let header = decode_header(token).map_err(|e| {
         error!("Failed to decode JWT header: {:?}", e);
         JwtError::InvalidFormat
@@ -142,3 +143,14 @@ pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, J
     Ok(token_data.claims)
 }
 
+pub fn extract_claims(auth_header: &str, key: &JwtPublicKey) -> Result<Claims, JwtError> {
+    let token = auth_header
+        .strip_prefix("Bearer ")
+        .ok_or(JwtError::InvalidFormat)?;
+
+    decode_and_validate_token(token, key)
+}
+
+pub fn extract_claims_without_bearer(token: &str, key: &JwtPublicKey) -> Result<Claims, JwtError> {
+    decode_and_validate_token(token, key)
+}
